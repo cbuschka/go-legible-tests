@@ -2,6 +2,7 @@ package replication
 
 import (
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.io/cbuschka/go-legible-tests/domain/product"
 	"testing"
 )
@@ -27,6 +28,18 @@ func TestService(t *testing.T) {
 				expectFailureReported(ErrNoProducts),
 			},
 			verify: verifyErrorReturned(ErrNoProducts),
+		},
+		{
+			name: "creates products if not existing yet",
+			given: []givenSpec{
+				givenClientReturnsProducts([]product.Product{{1, "p1"}}),
+				givenRepoReturnsNoProducts(),
+			},
+			expect: []expectSpec{
+				expectSuccessReported(1),
+				expectProductsSaved([]product.Product{{1, "p1"}}),
+			},
+			verify: verifyNoErrorReturned(),
 		},
 	}
 
@@ -82,8 +95,17 @@ func givenClientFails() givenSpec {
 }
 
 func givenClientReturnsNoProducts() givenSpec {
+	return givenClientReturnsProducts([]product.Product{})
+}
+func givenClientReturnsProducts(products []product.Product) givenSpec {
 	return func(t *testing.T, m *mocks) {
-		m.client.EXPECT().Fetch().Return([]product.Product{}, nil).Once()
+		m.client.EXPECT().Fetch().Return(products, nil).Once()
+	}
+}
+
+func givenRepoReturnsNoProducts() givenSpec {
+	return func(t *testing.T, m *mocks) {
+		m.repo.EXPECT().FindByIDs(mock.Anything).Return(map[product.ID]product.Product{}, nil).Once()
 	}
 }
 
@@ -93,8 +115,26 @@ func expectFailureReported(err error) expectSpec {
 	}
 }
 
+func expectSuccessReported(count int) expectSpec {
+	return func(t *testing.T, m *mocks) {
+		m.metrics.EXPECT().ReportSuccess(count).Once()
+	}
+}
+
+func expectProductsSaved(expectedProducts []product.Product) expectSpec {
+	return func(t *testing.T, m *mocks) {
+		m.repo.EXPECT().Save(expectedProducts).Return(nil).Once()
+	}
+}
+
 func verifyErrorReturned(expectedErr error) verifySpec {
 	return func(t *testing.T, err error) {
 		assert.Equal(t, expectedErr, err)
+	}
+}
+
+func verifyNoErrorReturned() verifySpec {
+	return func(t *testing.T, err error) {
+		assert.Nil(t, err)
 	}
 }

@@ -64,8 +64,9 @@ func (s *Service) replicate() (int, error) {
 	for _, newProduct := range products {
 		changedProduct, found := existingProductsByID[newProduct.ID]
 		if !found {
-			changedProduct = product.Product{Name: newProduct.Name}
+			changedProduct = product.Product{ID: newProduct.ID, Name: newProduct.Name}
 		} else {
+			changedProduct.ID = newProduct.ID
 			changedProduct.Name = newProduct.Name
 		}
 		changedProducts = append(changedProducts, changedProduct)
