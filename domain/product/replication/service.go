@@ -1,7 +1,13 @@
 package replication
 
 import (
+	"errors"
 	"github.io/cbuschka/go-legible-tests/domain/product"
+)
+
+var (
+	ErrNoProducts          = errors.New("client returned no products")
+	ErrClientRequestFailed = errors.New("client request failed")
 )
 
 type metricsSender interface {
@@ -43,6 +49,10 @@ func (s *Service) replicate() (int, error) {
 	products, err := s.client.Fetch()
 	if err != nil {
 		return 0, err
+	}
+
+	if len(products) == 0 {
+		return 0, ErrNoProducts
 	}
 
 	existingProductsByID, err := s.findExistingProducts(products)
