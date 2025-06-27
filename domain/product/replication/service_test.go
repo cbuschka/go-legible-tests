@@ -6,47 +6,8 @@ import (
 	"testing"
 )
 
-type testMocks struct {
-	repo    *mockrepository
-	metrics *mockmetricsSender
-	client  *mockclient
-}
-
-type givenSpec func(t *testing.T, m *testMocks)
-type expectSpec func(t *testing.T, m *testMocks)
-type verifySpec func(t *testing.T, err error)
-
-func givenClientFails() givenSpec {
-	return func(t *testing.T, m *testMocks) {
-		m.client.EXPECT().Fetch().Return(nil, ErrClientRequestFailed).Once()
-	}
-}
-
-func givenClientReturnsNoProducts() givenSpec {
-	return func(t *testing.T, m *testMocks) {
-		m.client.EXPECT().Fetch().Return([]product.Product{}, nil).Once()
-	}
-}
-
-func expectFailureReported(err error) expectSpec {
-	return func(t *testing.T, m *testMocks) {
-		m.metrics.EXPECT().ReportFailure(err).Once()
-	}
-}
-
-func verifyErrorReturned(expectedErr error) verifySpec {
-	return func(t *testing.T, err error) {
-		assert.Equal(t, expectedErr, err)
-	}
-}
-
 func TestService(t *testing.T) {
-	tests := []struct {
-		name   string
-		given  []givenSpec
-		expect []expectSpec
-		verify verifySpec
-	}{
+	tests := []test{
 		{
 			name: "fails if client returns error",
 			given: []givenSpec{
@@ -70,26 +31,70 @@ func TestService(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Log(test.name)
-			mocks := testMocks{
-				repo:    &mockrepository{},
-				metrics: &mockmetricsSender{},
-				client:  &mockclient{},
-			}
+		test.run(t)
+	}
+}
 
-			for _, given := range test.given {
-				given(t, &mocks)
-			}
+type test struct {
+	name   string
+	given  []givenSpec
+	expect []expectSpec
+	verify verifySpec
+}
 
-			for _, expect := range test.expect {
-				expect(t, &mocks)
-			}
+func (test *test) run(t *testing.T) {
+	t.Run(test.name, func(t *testing.T) {
+		m := mocks{
+			repo:    &mockrepository{},
+			metrics: &mockmetricsSender{},
+			client:  &mockclient{},
+		}
 
-			service := NewService(mocks.client, mocks.repo, mocks.metrics)
-			err := service.Replicate()
+		for _, given := range test.given {
+			given(t, &m)
+		}
 
-			test.verify(t, err)
-		})
+		for _, expect := range test.expect {
+			expect(t, &m)
+		}
+
+		service := NewService(m.client, m.repo, m.metrics)
+		err := service.Replicate()
+
+		test.verify(t, err)
+	})
+}
+
+type mocks struct {
+	repo    *mockrepository
+	metrics *mockmetricsSender
+	client  *mockclient
+}
+
+type givenSpec func(t *testing.T, m *mocks)
+type expectSpec func(t *testing.T, m *mocks)
+type verifySpec func(t *testing.T, err error)
+
+func givenClientFails() givenSpec {
+	return func(t *testing.T, m *mocks) {
+		m.client.EXPECT().Fetch().Return(nil, ErrClientRequestFailed).Once()
+	}
+}
+
+func givenClientReturnsNoProducts() givenSpec {
+	return func(t *testing.T, m *mocks) {
+		m.client.EXPECT().Fetch().Return([]product.Product{}, nil).Once()
+	}
+}
+
+func expectFailureReported(err error) expectSpec {
+	return func(t *testing.T, m *mocks) {
+		m.metrics.EXPECT().ReportFailure(err).Once()
+	}
+}
+
+func verifyErrorReturned(expectedErr error) verifySpec {
+	return func(t *testing.T, err error) {
+		assert.Equal(t, expectedErr, err)
 	}
 }
