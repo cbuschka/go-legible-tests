@@ -8,74 +8,88 @@ import (
 )
 
 func TestService(t *testing.T) {
-	tests := []test{
-		{
-			name: "fails if client returns error",
-			given: []givenSpec{
-				givenClientFails(),
-			},
-			expect: []expectSpec{
-				expectFailureReported(ErrClientRequestFailed),
-			},
-			verify: verifyErrorReturned(ErrClientRequestFailed),
+	tests := map[string]func(t *test){
+		"fails if client returns error": func(t *test) {
+			t.given(
+				clientFails(),
+			).expect(
+				failureReported(ErrClientRequestFailed),
+			).then(
+				errorReturned(ErrClientRequestFailed),
+			)
 		},
-		{
-			name: "fails if client returns no products",
-			given: []givenSpec{
-				givenClientReturnsNoProducts(),
-			},
-			expect: []expectSpec{
-				expectFailureReported(ErrNoProducts),
-			},
-			verify: verifyErrorReturned(ErrNoProducts),
+		"fails if client returns no products": func(t *test) {
+			t.given(
+				clientReturnsNoProducts(),
+			).expect(
+				failureReported(ErrNoProducts),
+			).then(
+				errorReturned(ErrNoProducts),
+			)
 		},
-		{
-			name: "creates products if not existing yet",
-			given: []givenSpec{
-				givenClientReturnsProducts([]product.Product{{1, "p1"}}),
-				givenRepoReturnsNoProducts(),
-			},
-			expect: []expectSpec{
-				expectSuccessReported(1),
-				expectProductsSaved([]product.Product{{1, "p1"}}),
-			},
-			verify: verifyNoErrorReturned(),
+		"creates products if not existing yet": func(t *test) {
+			products := []product.Product{{1, "p1"}}
+			t.given(
+				clientReturnsProducts(products),
+				repoReturnsNoProducts(),
+			).expect(
+				successReported(1),
+				productsSaved(products),
+			).then(
+				noErrorReturned(),
+			)
 		},
 	}
 
-	for _, test := range tests {
-		test.run(t)
+	for name, testSpec := range tests {
+		t.Run(name, func(t *testing.T) {
+			test := &test{}
+			testSpec(test)
+			test.run(t)
+		})
 	}
 }
 
 type test struct {
-	name   string
-	given  []givenSpec
-	expect []expectSpec
-	verify verifySpec
+	givenSpecs  []givenSpec
+	expectSpecs []expectSpec
+	verifySpec  verifySpec
 }
 
-func (test *test) run(t *testing.T) {
-	t.Run(test.name, func(t *testing.T) {
-		m := mocks{
-			repo:    &mockrepository{},
-			metrics: &mockmetricsSender{},
-			client:  &mockclient{},
-		}
+func (tc *test) given(givenSpecs ...givenSpec) *test {
+	tc.givenSpecs = append(tc.givenSpecs, givenSpecs...)
+	return tc
+}
 
-		for _, given := range test.given {
-			given(t, &m)
-		}
+func (tc *test) expect(expectSpecs ...expectSpec) *test {
+	tc.expectSpecs = append(tc.expectSpecs, expectSpecs...)
+	return tc
+}
 
-		for _, expect := range test.expect {
-			expect(t, &m)
-		}
+func (tc *test) then(verifySpec verifySpec) *test {
+	tc.verifySpec = verifySpec
+	return tc
+}
 
-		service := NewService(m.client, m.repo, m.metrics)
-		err := service.Replicate()
+func (tc *test) run(t *testing.T) {
+	m := mocks{
+		repo:    &mockrepository{},
+		metrics: &mockmetricsSender{},
+		client:  &mockclient{},
+	}
 
-		test.verify(t, err)
-	})
+	for _, givenSpec := range tc.givenSpecs {
+		givenSpec(t, &m)
+	}
+
+	for _, expect := range tc.expectSpecs {
+		expect(t, &m)
+	}
+
+	service := NewService(m.client, m.repo, m.metrics)
+	err := service.Replicate()
+
+	tc.verifySpec(t, err)
 }
 
 type mocks struct {
@@ -88,52 +102,52 @@ type givenSpec func(t *testing.T, m *mocks)
 type expectSpec func(t *testing.T, m *mocks)
 type verifySpec func(t *testing.T, err error)
 
-func givenClientFails() givenSpec {
+func clientFails() givenSpec {
 	return func(t *testing.T, m *mocks) {
 		m.client.EXPECT().Fetch().Return(nil, ErrClientRequestFailed).Once()
 	}
 }
 
-func givenClientReturnsNoProducts() givenSpec {
-	return givenClientReturnsProducts([]product.Product{})
+func clientReturnsNoProducts() givenSpec {
+	return clientReturnsProducts([]product.Product{})
 }
-func givenClientReturnsProducts(products []product.Product) givenSpec {
+func clientReturnsProducts(products []product.Product) givenSpec {
 	return func(t *testing.T, m *mocks) {
 		m.client.EXPECT().Fetch().Return(products, nil).Once()
 	}
 }
 
-func givenRepoReturnsNoProducts() givenSpec {
+func repoReturnsNoProducts() givenSpec {
 	return func(t *testing.T, m *mocks) {
 		m.repo.EXPECT().FindByIDs(mock.Anything).Return(map[product.ID]product.Product{}, nil).Once()
 	}
 }
 
-func expectFailureReported(err error) expectSpec {
+func failureReported(err error) expectSpec {
 	return func(t *testing.T, m *mocks) {
 		m.metrics.EXPECT().ReportFailure(err).Once()
 	}
 }
 
-func expectSuccessReported(count int) expectSpec {
+func successReported(count int) expectSpec {
 	return func(t *testing.T, m *mocks) {
 		m.metrics.EXPECT().ReportSuccess(count).Once()
 	}
 }
 
-func expectProductsSaved(expectedProducts []product.Product) expectSpec {
+func productsSaved(expectedProducts []product.Product) expectSpec {
 	return func(t *testing.T, m *mocks) {
 		m.repo.EXPECT().Save(expectedProducts).Return(nil).Once()
 	}
 }
 
-func verifyErrorReturned(expectedErr error) verifySpec {
+func errorReturned(expectedErr error) verifySpec {
 	return func(t *testing.T, err error) {
 		assert.Equal(t, expectedErr, err)
 	}
 }
 
-func verifyNoErrorReturned() verifySpec {
+func noErrorReturned() verifySpec {
 	return func(t *testing.T, err error) {
 		assert.Nil(t, err)
 	}
